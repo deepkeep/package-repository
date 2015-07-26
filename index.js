@@ -121,6 +121,10 @@ app.get('/v1/:username/:project/:version/package.zip', function(req, res, next) 
   res.redirect(storage.urlForKey(key));
 });
 
+app.delete('/v1/:username/:project/:version/package.zip', function(req, res, next) {
+  var key = req.params.username + '-' + req.params.project + '-' + req.params.version + '.zip';
+  storage.delete(key);
+});
 
 var port = process.env.PORT || 8096;
 app.listen(port, function() {

@@ -20,6 +20,10 @@ FSStorage.prototype.upload = function(key, stream) {
     });
   });
 }
+FSStorage.prototype.delete = function(key) {
+  fs.rmSync(path.join('storage', key));
+  return Promise.resolve(true);
+}
 FSStorage.prototype.urlForKey = function(key) {
   return '/storage/' + encodeURIComponent(key);
 }
