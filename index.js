@@ -61,6 +61,11 @@ passport.deserializeUser(function(user, done) {
 
 app.use(passport.initialize());
 
+app.use(function requestLogger(req, res, next) {
+  console.log(req.method + ' ' + req.url);
+  next();
+});
+
 console.log(multer({ dest: './uploads/' }))
 app.post('/v1/upload', passport.authenticate('basic', { session: false }), upload.single('package'), function(req, res) {
   console.log(req.file);
@@ -85,18 +90,22 @@ app.post('/v1/upload', passport.authenticate('basic', { session: false }), uploa
     }
     return storage.upload(key, body)
       .then(function() {
+        var packageUrl = 'http://' + req.headers.host + '/v1/' + req.user.username + '/' + packageJson.name + '/' + packageJson.version + '/package.zip';
         if (process.env.WEBHOOK_URL) {
+          console.log('Posting to webhook: ', process.env.WEBHOOK_URL);
           request.post({
             uri: process.env.WEBHOOK_URL,
             json: {
               event: 'package-uploaded',
-              path: '/' + req.user.username + '/' + packageJson.name + '/' + packageJson.version + '/package.zip'
+              url: packageUrl,
+              packageJson: packageJson,
+              readme: readme
             }
           });
         }
         res.json({
           status: 'success',
-          url: 'http://' + req.headers.host + '/v1/' + req.user.username + '/' + packageJson.name + '/' + packageJson.version + '/package.zip'
+          url: packageUrl
         });
       })
   }).catch(function(err) {
