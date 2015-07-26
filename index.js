@@ -99,7 +99,9 @@ app.post('/v1/upload', passport.authenticate('basic', { session: false }), uploa
               event: 'package-uploaded',
               url: packageUrl,
               packageJson: packageJson,
-              readme: readme
+              readme: readme,
+              username: req.user.username,
+              user_id: req.user.user_id
             }
           });
         }
