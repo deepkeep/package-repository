@@ -122,7 +122,7 @@ app.get('/v1/:username/:project/:version/package.zip', function(req, res, next) 
 });
 
 
-var port = process.env.PORT || 8096;
+var port = process.env.PORT || 6096;
 app.listen(port, function() {
   console.log("Listening on " + port);
 });
