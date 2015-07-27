@@ -20,6 +20,13 @@ FSStorage.prototype.upload = function(key, stream) {
     });
   });
 }
+FSStorage.prototype.listPrefix = function(prefixKey) {
+  var l = fs.readdirSync('storage');
+  return Promise.resolve(
+    l.filter(function(x) { return x.indexOf(prefixKey) == 0; })
+     .map(function(x) { return { key: x }})
+  );
+}
 FSStorage.prototype.urlForKey = function(key) {
   return '/storage/' + encodeURIComponent(key);
 }

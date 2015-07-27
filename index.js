@@ -67,7 +67,7 @@ app.use(function requestLogger(req, res, next) {
 });
 
 console.log(multer({ dest: './uploads/' }))
-app.post('/v1/upload', passport.authenticate('basic', { session: false }), upload.single('package'), function(req, res) {
+app.post('/v1/upload', passport.authenticate('basic', { session: false }), upload.single('package'), function(req, res, next) {
   console.log(req.file);
   console.log(req.user);
 
@@ -110,16 +110,23 @@ app.post('/v1/upload', passport.authenticate('basic', { session: false }), uploa
           url: packageUrl
         });
       })
-  }).catch(function(err) {
-    console.log('Error', err);
-    console.log(err.stack);
-  });
+  }).catch(next);
+});
+
+app.get('/v1/:username/:project/package.zip', function(req, res, next) {
+  var keyPrefix = req.params.username + '-' + req.params.project + '-';
+  storage.listPrefix(keyPrefix)
+    .then(function(files) {
+      // TODO: properly sort files based on versions
+      res.redirect(storage.urlForKey(files[0].key));
+    }).catch(next);
 });
 
 app.get('/v1/:username/:project/:version/package.zip', function(req, res, next) {
   var key = req.params.username + '-' + req.params.project + '-' + req.params.version + '.zip';
   res.redirect(storage.urlForKey(key));
 });
+
 
 
 var port = process.env.PORT || 6096;

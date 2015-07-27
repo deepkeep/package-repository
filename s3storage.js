@@ -34,6 +34,14 @@ S3Storage.prototype.upload = function(key, stream) {
       });
   }.bind(this));
 }
+S3Storage.prototype.listPrefix = function(prefixKey) {
+  return new Promise(function(resolve, reject) {
+    this.s3.listObjects({ Prefix: prefixKey }, function(err, res) {
+      if (err) reject(err);
+      else resolve(res.data.Contents.map(function(x) { return { key: x.Key } }));
+    });
+  }.bind(this));
+}
 S3Storage.prototype.urlForKey = function(key) {
   return 'https://' + this.S3_BUCKET + '.s3.amazonaws.com/' + encodeURIComponent(key);
 }
