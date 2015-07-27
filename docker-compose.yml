@@ -1,0 +1,19 @@
+packages:
+  build: .
+  ports:
+    - "6096:6096"
+  links:
+    - packagess3
+  env_file: ../auth0.env
+  environment:
+    PORT: 6096
+    AWS_ACCESS_KEY: fake
+    AWS_SECRET_KEY: fake
+    S3_BUCKET: packages
+    S3_ENDPOINT: http://packagess3:4569
+    AUTO_CREATE_BUCKET: true
+packagess3:
+  image: lphoward/fake-s3
+  ports:
+    - "4569:4569"
+  command: -r /fakes3_root -p 4569 -H packagess3

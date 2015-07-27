@@ -6,16 +6,37 @@ var multer  = require('multer');
 var request = require('request-promise');
 var AdmZip = require('adm-zip');
 var fs = require('fs');
-var FSStorage = require('./fsstorage');
-var S3Storage = require('./s3storage');
+var AWS = require('aws-sdk');
 
 var app = express();
 
 var upload = multer({ dest: './uploads/' });
 
-var storage;
-if (process.env.STORAGE == 'S3') storage = new S3Storage();
-else storage = new FSStorage(app);
+var AWS_ACCESS_KEY = process.env.AWS_ACCESS_KEY;
+var AWS_SECRET_KEY = process.env.AWS_SECRET_KEY;
+var S3_BUCKET = process.env.S3_BUCKET;
+var S3_ENDPOINT = process.env.S3_ENDPOINT;
+var PUBLIC_S3_ENDPOINT = process.env.PUBLIC_S3_ENDPOINT;
+
+var config = {
+  s3ForcePathStyle: true,
+  accessKeyId: AWS_ACCESS_KEY,
+  secretAccessKey: AWS_SECRET_KEY,
+  params: {
+    Bucket: S3_BUCKET
+  }
+};
+if (S3_ENDPOINT) {
+  config.endpoint = new AWS.Endpoint(S3_ENDPOINT);
+}
+if (!PUBLIC_S3_ENDPOINT) {
+  PUBLIC_S3_ENDPOINT = S3_ENDPOINT || 'https://s3.amazonaws.com';
+}
+
+console.log('Using internal S3 endpoint: ', S3_ENDPOINT);
+console.log('Using public S3 endpoint: ', PUBLIC_S3_ENDPOINT);
+
+var s3 = new AWS.S3(config);
 
 
 passport.use(new BasicStrategy(
@@ -77,19 +98,41 @@ app.post('/v1/upload', passport.authenticate('basic', { session: false }), uploa
   try {
     packageJson = JSON.parse(packageJson);
   } catch(err) {
-    res.status(400).send('Could not parse package.json');
-    return;
+    return res.status(400).json({
+      status: 'error',
+      error: 'failed-to-parse-package-json',
+      message: 'Could not parse package.json'
+    });
   }
   console.log(packageJson);
   var body = fs.createReadStream(req.file.path);
   var key = req.user.username + '-' + packageJson.name + '-' + packageJson.version + '.zip';
-  storage.exists(key).then(function(exists) {
+  s3.headObject({ Key: key }, function(err, headRes) {
+    console.log('HEAD', headRes)
+    console.log('HEAD err', err)
+    var exists = headRes || err.code !== 'NotFound';
     if (exists) {
-      res.status(409).send('Package already extists at version ' + packageJson.version);
-      return;
+      return res.status(409).json({
+        status: 'error',
+        error: 'package-exists',
+        message: 'Package already extists at version ' + packageJson.version
+      });
     }
-    return storage.upload(key, body)
-      .then(function() {
+
+    s3.upload({
+      Body: body,
+      Bucket: S3_BUCKET,
+      Key: key,
+      ACL: 'public-read'
+    }).send(function(err, data) {
+        if (err) {
+          console.log('S3 upload failed: ', err);
+          return res.status(400).json({
+            status: 'error',
+            error: 's3-upload-failed'
+          });
+        }
+
         var packageUrl = 'http://' + req.headers.host + '/v1/' + req.user.username + '/' + packageJson.name + '/' + packageJson.version + '/package.zip';
         if (process.env.WEBHOOK_URL) {
           console.log('Posting to webhook: ', process.env.WEBHOOK_URL);
@@ -109,25 +152,59 @@ app.post('/v1/upload', passport.authenticate('basic', { session: false }), uploa
           status: 'success',
           url: packageUrl
         });
-      })
-  }).catch(next);
+      });
+  });
+});
+
+
+app.get('/v1/_list', function(req, res, next) {
+  s3.listObjects({ Bucket: S3_BUCKET }, function(err, result) {
+    if (err) {
+      console.log('Error', err);
+      return res.status(500).json({
+        status: 'error'
+      });
+    }
+    res.json(result.Contents.map(function(x) {
+      return {
+        key: x.key
+      }
+    }));
+  });
 });
 
 app.get('/v1/:username/:project/package.zip', function(req, res, next) {
   var keyPrefix = req.params.username + '-' + req.params.project + '-';
-  storage.listPrefix(keyPrefix)
-    .then(function(files) {
-      // TODO: properly sort files based on versions
-      res.redirect(storage.urlForKey(files[0].key));
-    }).catch(next);
+  s3.listObjects({ Prefix: prefixKey }, function(err, res) {
+    // TODO: sort on semver and extract top version
+    var key = res.data.Contents[0].Key;
+    var url = PUBLIC_S3_ENDPOINT + '/' + S3_BUCKET + '/' + encodeURIComponent(key);
+    res.redirect(url);
+  });
 });
 
 app.get('/v1/:username/:project/:version/package.zip', function(req, res, next) {
   var key = req.params.username + '-' + req.params.project + '-' + req.params.version + '.zip';
-  res.redirect(storage.urlForKey(key));
+  var url = PUBLIC_S3_ENDPOINT + '/' + S3_BUCKET + '/' + encodeURIComponent(key);
+  res.redirect(url);
 });
 
 
+if (process.env.AUTO_CREATE_BUCKET) {
+  s3.headBucket({ Bucket: S3_BUCKET }, function(err, result) {
+    if (!err || err.code != 'NotFound') {
+      console.log('AUTO_CREATE_BUCKET Bucket already exists', err);
+      return;
+    }
+    s3.createBucket({ Bucket: S3_BUCKET }, function(err, result) {
+      if (err) {
+        console.log('AUTO_CREATE_BUCKET Error', err);
+      } else {
+        console.log('AUTO_CREATE_BUCKET Created', result);
+      }
+    });
+  });
+}
 
 var port = process.env.PORT || 6096;
 app.listen(port, function() {
