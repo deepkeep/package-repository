@@ -87,7 +87,6 @@ app.use(function requestLogger(req, res, next) {
   next();
 });
 
-console.log(multer({ dest: './uploads/' }))
 app.post('/v1/upload', passport.authenticate('basic', { session: false }), upload.single('package'), function(req, res, next) {
   console.log(req.file);
   console.log(req.user);
