@@ -17,9 +17,10 @@ var AWS_SECRET_KEY = process.env.AWS_SECRET_KEY;
 var S3_BUCKET = process.env.S3_BUCKET;
 var S3_ENDPOINT = process.env.S3_ENDPOINT;
 var PUBLIC_S3_ENDPOINT = process.env.PUBLIC_S3_ENDPOINT;
+var FORCE_PATH_STYLE = !!process.env.FORCE_PATH_STYLE;
 
 var config = {
-  s3ForcePathStyle: true,
+  s3ForcePathStyle: FORCE_PATH_STYLE,
   accessKeyId: AWS_ACCESS_KEY,
   secretAccessKey: AWS_SECRET_KEY,
   params: {
@@ -30,9 +31,13 @@ if (S3_ENDPOINT) {
   config.endpoint = new AWS.Endpoint(S3_ENDPOINT);
 }
 if (!PUBLIC_S3_ENDPOINT) {
-  PUBLIC_S3_ENDPOINT = S3_ENDPOINT || 'https://s3.amazonaws.com';
+  if (!FORCE_PATH_STYLE) {
+    PUBLIC_S3_ENDPOINT = 'https://' + S3_BUCKET + '.s3.amazonaws.com';
+  } else {
+    PUBLIC_S3_ENDPOINT = S3_ENDPOINT || 'https://s3.amazonaws.com';
+  }
 }
-
+console.log('Config', config)
 console.log('Using internal S3 endpoint: ', S3_ENDPOINT);
 console.log('Using public S3 endpoint: ', PUBLIC_S3_ENDPOINT);
 
@@ -172,20 +177,26 @@ app.get('/v1/_list', function(req, res, next) {
   });
 });
 
+function keyToUrl(key) {
+  if (FORCE_PATH_STYLE) {
+    return PUBLIC_S3_ENDPOINT + '/' + S3_BUCKET + '/' + encodeURIComponent(key);
+  } else {
+    return PUBLIC_S3_ENDPOINT + '/' + encodeURIComponent(key);
+  }
+}
+
 app.get('/v1/:username/:project/package.zip', function(req, res, next) {
   var keyPrefix = req.params.username + '-' + req.params.project + '-';
   s3.listObjects({ Prefix: prefixKey }, function(err, res) {
     // TODO: sort on semver and extract top version
     var key = res.data.Contents[0].Key;
-    var url = PUBLIC_S3_ENDPOINT + '/' + S3_BUCKET + '/' + encodeURIComponent(key);
-    res.redirect(url);
+    res.redirect(keyToUrl(key));
   });
 });
 
 app.get('/v1/:username/:project/:version/package.zip', function(req, res, next) {
   var key = req.params.username + '-' + req.params.project + '-' + req.params.version + '.zip';
-  var url = PUBLIC_S3_ENDPOINT + '/' + S3_BUCKET + '/' + encodeURIComponent(key);
-  res.redirect(url);
+  res.redirect(keyToUrl(key));
 });
 
 
