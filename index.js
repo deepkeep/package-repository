@@ -170,49 +170,73 @@ function keyToUrl(key) {
   }
 }
 
-function listProjects(prefix) {
+function listPackagesAndVersions(prefix) {
   return new Promise(function(resolve, reject) {
     s3.listObjects({ Bucket: S3_BUCKET, Prefix: prefix }, function(err, result) {
       if (err) return reject(err);
-      var projects = result.Contents.map(function(x) {
+      var packages = result.Contents.map(function(x) {
         var ss = x.Key.split('/')
         return {
           username: ss[0],
-          project: ss[1],
-          projectid: ss[0] + '/' + ss[1]
+          package: ss[1],
+          version: ss[2]
         }
       });
-      resolve(unique(projects));
+      resolve(unique(packages));
     });
   })
 }
 
-app.get('/v1/_projects', function(req, res, next) {
-  listProjects()
-    .then(function(projects) {
-      res.json(projects);
+function listPackages(prefix) {
+  return listPackagesAndVersions(prefix)
+    .then(function(packages) {
+      var projects = {};
+      packages.forEach(function(package) {
+        projects[package.username + '/' + package.package] = {
+          username: package.username,
+          package: package.package
+        }
+      });
+      return Object.keys(projects).map(function(key) {
+        return projects[key];
+      });
+    });
+}
+
+app.get('/v1/_packages', function(req, res, next) {
+  listPackages()
+    .then(function(packages) {
+      res.json(packages);
     })
     .catch(next);
 });
 
-app.get('/v1/_projects/count', function(req, res, next) {
-  listProjects()
-    .then(function(projects) {
-      res.json({ count: projects.length });
+app.get('/v1/_packagescount', function(req, res, next) {
+  listPackages()
+    .then(function(packages) {
+      res.json({ count: packages.length });
     })
     .catch(next);
 });
 
-app.get('/v1/:username/_projects', function(req, res, next) {
-  listProjects(req.params.username)
-    .then(function(projects) {
-      res.json(projects);
+app.get('/v1/:username/_packages', function(req, res, next) {
+  listPackages(req.params.username)
+    .then(function(packages) {
+      res.json(packages);
     })
     .catch(next);
 });
 
-app.get('/v1/:username/:project/package.zip', function(req, res, next) {
-  var keyPrefix = req.params.username + '/' + req.params.project + '/';
+app.get('/v1/:username/:package/_versions', function(req, res, next) {
+  listPackagesAndVersions(req.params.username + '/' + req.params.package)
+    .then(function(packages) {
+      res.json(packages);
+    })
+    .catch(next);
+});
+
+app.get('/v1/:username/:package/package.zip', function(req, res, next) {
+  var keyPrefix = req.params.username + '/' + req.params.package + '/';
   s3.listObjects({ Prefix: prefixKey }, function(err, res) {
     // TODO: sort on semver and extract top version
     var key = res.data.Contents[0].Key;
@@ -220,9 +244,13 @@ app.get('/v1/:username/:project/package.zip', function(req, res, next) {
   });
 });
 
-app.get('/v1/:username/:project/:version/package.zip', function(req, res, next) {
-  var key = req.params.username + '/' + req.params.project + '/' + req.params.version + '/package.zip';
+app.get('/v1/:username/:package/:version/package.zip', function(req, res, next) {
+  var key = req.params.username + '/' + req.params.package + '/' + req.params.version + '/package.zip';
   res.redirect(keyToUrl(key));
+});
+
+app.use('/v1/:username/:package/:version/package.zip/README.md', function(req, res) {
+  res.send('lol');
 });
 
 
