@@ -12,6 +12,7 @@
   "dependencies": {
     "adm-zip": "^0.4.7",
     "array-uniq": "^1.0.2",
+    "async": "^1.4.0",
     "aws-sdk": "^2.1.40",
     "express": "^4.13.1",
     "multer": "^1.0.1",

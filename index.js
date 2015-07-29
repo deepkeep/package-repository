@@ -8,6 +8,7 @@ var AdmZip = require('adm-zip');
 var fs = require('fs');
 var AWS = require('aws-sdk');
 var unique = require('array-uniq');
+var async = require('async');
 
 var app = express();
 
@@ -43,7 +44,6 @@ console.log('Using internal S3 endpoint: ', S3_ENDPOINT);
 console.log('Using public S3 endpoint: ', PUBLIC_S3_ENDPOINT);
 
 var s3 = new AWS.S3(config);
-
 
 passport.use(new BasicStrategy(
   function(userid, password, done) {
@@ -93,6 +93,10 @@ app.use(function requestLogger(req, res, next) {
   next();
 });
 
+function zippedKeyFromPackage(package) {
+  return 'zipped/' + package.username + '/' + package.package + '/' + package.version + '/package.zip';
+}
+
 app.post('/v1/upload', passport.authenticate('basic', { session: false }), upload.single('package'), function(req, res, next) {
   console.log(req.file);
   console.log(req.user);
@@ -110,9 +114,11 @@ app.post('/v1/upload', passport.authenticate('basic', { session: false }), uploa
     });
   }
   console.log(packageJson);
-  var body = fs.createReadStream(req.file.path);
-  var key = req.user.username + '/' + packageJson.name + '/' + packageJson.version + '/package.zip';
-  s3.headObject({ Key: key }, function(err, headRes) {
+  var zipStream = fs.createReadStream(req.file.path);
+  var packageKey = req.user.username + '/' + packageJson.name + '/' + packageJson.version;
+  var zippedKey = 'zipped/' + packageKey + '/package.zip';
+  var extractedKey = 'extracted/' + packageKey + '/';
+  s3.headObject({ Key: zippedKey }, function(err, headRes) {
     console.log('HEAD', headRes)
     console.log('HEAD err', err)
     var exists = headRes || err.code !== 'NotFound';
@@ -124,19 +130,40 @@ app.post('/v1/upload', passport.authenticate('basic', { session: false }), uploa
       });
     }
 
-    s3.upload({
-      Body: body,
-      Bucket: S3_BUCKET,
-      Key: key,
-      ACL: 'public-read'
-    }).send(function(err, data) {
-        if (err) {
-          console.log('S3 upload failed: ', err);
-          return res.status(400).json({
-            status: 'error',
-            error: 's3-upload-failed'
-          });
-        }
+    var uploads = [{
+      body: zipStream,
+      key: zippedKey
+    }];
+    zip.getEntries().forEach(function(entry) {
+      uploads.push({
+        body: zip.readFile(entry),
+        key: extractedKey + entry.entryName
+      });
+    });
+    console.log('Uploading:', uploads);
+    async.map(uploads, function(upload, callback) {
+      s3.upload({
+        Body: upload.body,
+        Bucket: S3_BUCKET,
+        Key: upload.key,
+        ACL: 'public-read'
+      }).send(callback);
+    }, function(err, uploadRes) {
+      if (err) {
+        console.log('S3 upload failed: ', err);
+        return res.status(400).json({
+          status: 'error',
+          error: 's3-upload-failed'
+        });
+      }
+      if (err) {
+        console.log('S3 upload failed: ', err);
+        return res.status(400).json({
+          status: 'error',
+          error: 's3-upload-failed'
+        });
+      }
+      console.log('Uploaded files', err, uploadRes);
 
         var packageUrl = 'http://' + req.headers.host + '/v1/' + req.user.username + '/' + packageJson.name + '/' + packageJson.version + '/package.zip';
         if (process.env.WEBHOOK_URL) {
@@ -170,6 +197,7 @@ function keyToUrl(key) {
   }
 }
 
+
 function listPackagesAndVersions(prefix) {
   return new Promise(function(resolve, reject) {
     s3.listObjects({ Bucket: S3_BUCKET, Prefix: prefix }, function(err, result) {
@@ -177,9 +205,9 @@ function listPackagesAndVersions(prefix) {
       var packages = result.Contents.map(function(x) {
         var ss = x.Key.split('/')
         return {
-          username: ss[0],
-          package: ss[1],
-          version: ss[2]
+          username: ss[1],
+          package: ss[2],
+          version: ss[3]
         }
       });
       resolve(unique(packages));
@@ -204,7 +232,7 @@ function listPackages(prefix) {
 }
 
 app.get('/v1/_packages', function(req, res, next) {
-  listPackages()
+  listPackages('zipped/')
     .then(function(packages) {
       res.json(packages);
     })
@@ -212,7 +240,7 @@ app.get('/v1/_packages', function(req, res, next) {
 });
 
 app.get('/v1/_packagescount', function(req, res, next) {
-  listPackages()
+  listPackages('zipped/')
     .then(function(packages) {
       res.json({ count: packages.length });
     })
@@ -220,7 +248,7 @@ app.get('/v1/_packagescount', function(req, res, next) {
 });
 
 app.get('/v1/:username/_packages', function(req, res, next) {
-  listPackages(req.params.username)
+  listPackages('zipped/' + req.params.username)
     .then(function(packages) {
       res.json(packages);
     })
@@ -228,7 +256,7 @@ app.get('/v1/:username/_packages', function(req, res, next) {
 });
 
 app.get('/v1/:username/:package/_versions', function(req, res, next) {
-  listPackagesAndVersions(req.params.username + '/' + req.params.package)
+  listPackagesAndVersions('zipped/' + req.params.username + '/' + req.params.package)
     .then(function(packages) {
       res.json(packages);
     })
@@ -236,16 +264,17 @@ app.get('/v1/:username/:package/_versions', function(req, res, next) {
 });
 
 app.get('/v1/:username/:package/package.zip', function(req, res, next) {
-  var keyPrefix = req.params.username + '/' + req.params.package + '/';
-  s3.listObjects({ Prefix: prefixKey }, function(err, res) {
-    // TODO: sort on semver and extract top version
-    var key = res.data.Contents[0].Key;
-    res.redirect(keyToUrl(key));
-  });
+  listPackagesAndVersions('zipped/' + req.params.username + '/' + req.params.package)
+    .then(function(packages) {
+      // TODO: sort on semver and extract top version
+      var key = zippedKeyFromPackage(packages[0]);
+      res.redirect(keyToUrl(key));
+    })
+    .catch(next);
 });
 
 app.get('/v1/:username/:package/:version/package.zip', function(req, res, next) {
-  var key = req.params.username + '/' + req.params.package + '/' + req.params.version + '/package.zip';
+  var key = zippedKeyFromPackage(req.params);
   res.redirect(keyToUrl(key));
 });
 
