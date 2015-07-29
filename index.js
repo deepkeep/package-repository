@@ -161,21 +161,37 @@ app.post('/v1/upload', passport.authenticate('basic', { session: false }), uploa
   });
 });
 
+function listProjects() {
+  return new Promise(function(resolve, reject) {
+    s3.listObjects({ Bucket: S3_BUCKET }, function(err, result) {
+      if (err) return reject(err);
+      var projects = result.Contents.map(function(x) {
+        var ss = x.Key.split('/')
+        return {
+          username: ss[0],
+          project: ss[1],
+          projectid: ss[0] + '/' + ss[1]
+        }
+      });
+      resolve(unique(projects));
+    });
+  })
+}
 
 app.get('/v1/_projects', function(req, res, next) {
-  s3.listObjects({ Bucket: S3_BUCKET }, function(err, result) {
-    if (err) {
-      console.log('Error', err);
-      return res.status(500).json({
-        status: 'error'
-      });
-    }
-    var projects = result.Contents.map(function(x) {
-      var ss = x.Key.split('/')
-      return ss[0] + '/' + ss[1]
-    });
-    res.json(unique(projects));
-  });
+  listProjects()
+    .then(function(projects) {
+      res.json(projects);
+    })
+    .catch(next);
+});
+
+app.get('/v1/_projects/count', function(req, res, next) {
+  listProjects()
+    .then(function(projects) {
+      res.json({ count: projects.length });
+    })
+    .catch(next);
 });
 
 function keyToUrl(key) {
