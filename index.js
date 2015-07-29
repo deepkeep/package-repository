@@ -7,6 +7,7 @@ var request = require('request-promise');
 var AdmZip = require('adm-zip');
 var fs = require('fs');
 var AWS = require('aws-sdk');
+var unique = require('array-uniq');
 
 var app = express();
 
@@ -110,7 +111,7 @@ app.post('/v1/upload', passport.authenticate('basic', { session: false }), uploa
   }
   console.log(packageJson);
   var body = fs.createReadStream(req.file.path);
-  var key = req.user.username + '/' + packageJson.name + '/' + packageJson.version + '.zip';
+  var key = req.user.username + '/' + packageJson.name + '/' + packageJson.version + '/package.zip';
   s3.headObject({ Key: key }, function(err, headRes) {
     console.log('HEAD', headRes)
     console.log('HEAD err', err)
@@ -161,7 +162,7 @@ app.post('/v1/upload', passport.authenticate('basic', { session: false }), uploa
 });
 
 
-app.get('/v1/_list', function(req, res, next) {
+app.get('/v1/_projects', function(req, res, next) {
   s3.listObjects({ Bucket: S3_BUCKET }, function(err, result) {
     if (err) {
       console.log('Error', err);
@@ -169,11 +170,11 @@ app.get('/v1/_list', function(req, res, next) {
         status: 'error'
       });
     }
-    res.json(result.Contents.map(function(x) {
-      return {
-        key: x.key
-      }
-    }));
+    var projects = result.Contents.map(function(x) {
+      var ss = x.Key.split('/')
+      return ss[0] + '/' + ss[1]
+    });
+    res.json(unique(projects));
   });
 });
 
@@ -195,7 +196,7 @@ app.get('/v1/:username/:project/package.zip', function(req, res, next) {
 });
 
 app.get('/v1/:username/:project/:version/package.zip', function(req, res, next) {
-  var key = req.params.username + '/' + req.params.project + '/' + req.params.version + '.zip';
+  var key = req.params.username + '/' + req.params.project + '/' + req.params.version + '/package.zip';
   res.redirect(keyToUrl(key));
 });
 
