@@ -5,17 +5,21 @@
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "mocha"
   },
   "author": "",
   "license": "ISC",
   "dependencies": {
     "adm-zip": "^0.4.7",
     "aws-sdk": "^2.1.40",
-    "express": "^4.13.1",
+    "mocha": "^2.2.5",
     "multer": "^1.0.1",
     "passport": "^0.2.2",
     "passport-http": "^0.2.2",
     "request-promise": "^0.4.2"
+  },
+  "devDependencies": {
+    "express": "^4.13.1",
+    "chai": "^3.2.0"
   }
 }
