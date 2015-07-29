@@ -161,9 +161,18 @@ app.post('/v1/upload', passport.authenticate('basic', { session: false }), uploa
   });
 });
 
-function listProjects() {
+
+function keyToUrl(key) {
+  if (FORCE_PATH_STYLE) {
+    return PUBLIC_S3_ENDPOINT + '/' + S3_BUCKET + '/' + encodeURIComponent(key);
+  } else {
+    return PUBLIC_S3_ENDPOINT + '/' + encodeURIComponent(key);
+  }
+}
+
+function listProjects(prefix) {
   return new Promise(function(resolve, reject) {
-    s3.listObjects({ Bucket: S3_BUCKET }, function(err, result) {
+    s3.listObjects({ Bucket: S3_BUCKET, Prefix: prefix }, function(err, result) {
       if (err) return reject(err);
       var projects = result.Contents.map(function(x) {
         var ss = x.Key.split('/')
@@ -194,13 +203,13 @@ app.get('/v1/_projects/count', function(req, res, next) {
     .catch(next);
 });
 
-function keyToUrl(key) {
-  if (FORCE_PATH_STYLE) {
-    return PUBLIC_S3_ENDPOINT + '/' + S3_BUCKET + '/' + encodeURIComponent(key);
-  } else {
-    return PUBLIC_S3_ENDPOINT + '/' + encodeURIComponent(key);
-  }
-}
+app.get('/v1/:username/_projects', function(req, res, next) {
+  listProjects(req.params.username)
+    .then(function(projects) {
+      res.json(projects);
+    })
+    .catch(next);
+});
 
 app.get('/v1/:username/:project/package.zip', function(req, res, next) {
   var keyPrefix = req.params.username + '/' + req.params.project + '/';
