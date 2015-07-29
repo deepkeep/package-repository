@@ -278,10 +278,16 @@ app.get('/v1/:username/:package/:version/package.zip', function(req, res, next) 
   res.redirect(keyToUrl(key));
 });
 
-app.use('/v1/:username/:package/:version/package.zip/README.md', function(req, res) {
-  res.send('lol');
+app.use(function servePackageFiles(req, res, next) {
+  var match = req.path.match(/\/v1\/(.*)\/(.*)\/(.*)\/package[.]zip\/(.*)/);
+  if (!match) return next('route');
+  var username = match[1];
+  var project = match[2];
+  var version = match[3];
+  var file = match[4];
+  var key = 'extracted/' + username + '/' + project + '/' + version + '/' + file;
+  res.redirect(keyToUrl(key));
 });
-
 
 if (process.env.AUTO_CREATE_BUCKET) {
   s3.headBucket({ Bucket: S3_BUCKET }, function(err, result) {
