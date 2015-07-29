@@ -110,7 +110,7 @@ app.post('/v1/upload', passport.authenticate('basic', { session: false }), uploa
   }
   console.log(packageJson);
   var body = fs.createReadStream(req.file.path);
-  var key = req.user.username + '-' + packageJson.name + '-' + packageJson.version + '.zip';
+  var key = req.user.username + '/' + packageJson.name + '/' + packageJson.version + '.zip';
   s3.headObject({ Key: key }, function(err, headRes) {
     console.log('HEAD', headRes)
     console.log('HEAD err', err)
@@ -186,7 +186,7 @@ function keyToUrl(key) {
 }
 
 app.get('/v1/:username/:project/package.zip', function(req, res, next) {
-  var keyPrefix = req.params.username + '-' + req.params.project + '-';
+  var keyPrefix = req.params.username + '/' + req.params.project + '/';
   s3.listObjects({ Prefix: prefixKey }, function(err, res) {
     // TODO: sort on semver and extract top version
     var key = res.data.Contents[0].Key;
@@ -195,7 +195,7 @@ app.get('/v1/:username/:project/package.zip', function(req, res, next) {
 });
 
 app.get('/v1/:username/:project/:version/package.zip', function(req, res, next) {
-  var key = req.params.username + '-' + req.params.project + '-' + req.params.version + '.zip';
+  var key = req.params.username + '/' + req.params.project + '/' + req.params.version + '.zip';
   res.redirect(keyToUrl(key));
 });
 
