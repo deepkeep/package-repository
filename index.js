@@ -239,6 +239,14 @@ app.get('/v1/_packages', function(req, res, next) {
     .catch(next);
 });
 
+app.get('/v1/_all', function(req, res, next) {
+  listPackagesAndVersions('zipped/')
+    .then(function(packages) {
+      res.json(packages);
+    })
+    .catch(next);
+});
+
 app.get('/v1/_packagescount', function(req, res, next) {
   listPackages('zipped/')
     .then(function(packages) {
