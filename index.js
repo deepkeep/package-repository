@@ -312,7 +312,7 @@ v1.put('/:username/:package/:version/package.zip', passport.authenticate('basic'
 });
 
 v1.use(function servePackageFiles(req, res, next) {
-  var match = req.path.match(/\/v1\/(.*)\/(.*)\/(.*)\/package[.]zip\/(.*)/);
+  var match = req.path.match(/\/(.*)\/(.*)\/(.*)\/package[.]zip\/(.*)/);
   if (!match) return next('route');
   var username = match[1];
   var project = match[2];
