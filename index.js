@@ -10,6 +10,7 @@ var unique = require('array-uniq');
 var async = require('async');
 var streamToBuffer = require('stream-to-buffer');
 var morgan = require('morgan');
+var semver = require('semver');
 
 var app = express();
 
@@ -117,7 +118,11 @@ function listPackagesAndVersions(prefix) {
           version: ss[3]
         }
       });
-      resolve(unique(packages));
+      var packages = unique(packages);
+      packages.sort(function(a, b) {
+        return semver.compare(a.version, b.version);
+      });
+      resolve(packages);
     });
   })
 }
@@ -135,6 +140,13 @@ function listPackages(prefix) {
       return Object.keys(projects).map(function(key) {
         return projects[key];
       });
+    });
+}
+
+function getLatestVersion(username, package) {
+  return listPackagesAndVersions('zipped/' + username + '/' + package)
+    .then(function(packages) {
+      return packages[packages.length - 1].version;
     });
 }
 
@@ -181,10 +193,9 @@ v1.get('/:username/:package/_versions', function(req, res, next) {
 });
 
 v1.get('/:username/:package/_latest/package.zip', function(req, res, next) {
-  listPackagesAndVersions('zipped/' + req.params.username + '/' + req.params.package)
-    .then(function(packages) {
-      // TODO: sort on semver and extract top version
-      var key = zippedKeyFromPackage(packages[0]);
+  getLatestVersion(req.params.username, req.params.package)
+    .then(function(version) {
+      var key = zippedKeyFromPackage(packages[packages.length - 1]);
       res.redirect(keyToUrl(key));
     })
     .catch(next);
@@ -223,17 +234,23 @@ v1.put('/:username/:package/:version/package.zip', passport.authenticate('basic'
     if (req.params.username !== req.user.username) return res.status(400).json({
       status: 'error',
       error: 'missmatch-username',
-      message: 'username in path not matching auth username'
+      message: 'Username in path not matching auth username.'
     });
     if (req.params.package !== packageJson.name) return res.status(400).json({
       status: 'error',
       error: 'missmatch-username',
-      message: 'package name in path not matching package name in package.json'
+      message: 'Package name in path not matching package name in package.json.'
     });
     if (req.params.version !== packageJson.version) return res.status(400).json({
       status: 'error',
       error: 'missmatch-username',
-      message: 'version in path not matching version in package.json'
+      message: 'Version in path not matching version in package.json.'
+    });
+
+    if (!semver.valid(packageJson.version)) return res.status(400).json({
+      status: 'error',
+      error: 'invalid-version',
+      message: 'Invalid version: ' + packageJson.version + ', only valid semver versions are allowed.'
     });
 
     console.log(packageJson);
@@ -315,11 +332,15 @@ v1.use(function servePackageFiles(req, res, next) {
   var match = req.path.match(/\/(.*)\/(.*)\/(.*)\/package[.]zip\/(.*)/);
   if (!match) return next('route');
   var username = match[1];
-  var project = match[2];
+  var package = match[2];
   var version = match[3];
   var file = match[4];
-  var key = 'extracted/' + username + '/' + project + '/' + version + '/' + file;
-  res.redirect(keyToUrl(key));
+  var versionPromise = Promise.resolve(version);
+  if (version === '_latest') versionPromise = getLatestVersion(username, package);
+  versionPromise.then(function(resolvedVersion) {
+    var key = 'extracted/' + username + '/' + package + '/' + resolvedVersion + '/' + file;
+    res.redirect(keyToUrl(key));
+  }).catch(next);
 });
 
 app.use('/v1', v1);

@@ -19,6 +19,7 @@
     "passport": "^0.2.2",
     "passport-http": "^0.2.2",
     "request-promise": "^0.4.2",
+    "semver": "^5.0.1",
     "stream-to-buffer": "^0.1.0"
   }
 }
