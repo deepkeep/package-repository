@@ -1,3 +1,4 @@
+docker rm deepkeep-package-repository
 docker stop deepkeep-package-repository
 git pull
 docker build -t deepkeep-package-repository .
