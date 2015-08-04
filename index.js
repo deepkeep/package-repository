@@ -180,7 +180,7 @@ v1.get('/:username/:package/_versions', function(req, res, next) {
     .catch(next);
 });
 
-v1.get('/:username/:package/package.zip', function(req, res, next) {
+v1.get('/:username/:package/_latest/package.zip', function(req, res, next) {
   listPackagesAndVersions('zipped/' + req.params.username + '/' + req.params.package)
     .then(function(packages) {
       // TODO: sort on semver and extract top version
