@@ -15,9 +15,10 @@
     "async": "^1.4.0",
     "aws-sdk": "^2.1.40",
     "express": "^4.13.1",
-    "multer": "^1.0.1",
+    "morgan": "^1.6.1",
     "passport": "^0.2.2",
     "passport-http": "^0.2.2",
-    "request-promise": "^0.4.2"
+    "request-promise": "^0.4.2",
+    "stream-to-buffer": "^0.1.0"
   }
 }

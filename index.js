@@ -2,17 +2,16 @@
 var express = require('express');
 var passport = require('passport');
 var BasicStrategy = require('passport-http').BasicStrategy;
-var multer  = require('multer');
 var request = require('request-promise');
 var AdmZip = require('adm-zip');
 var fs = require('fs');
 var AWS = require('aws-sdk');
 var unique = require('array-uniq');
 var async = require('async');
+var streamToBuffer = require('stream-to-buffer');
+var morgan = require('morgan');
 
 var app = express();
-
-var upload = multer({ dest: './uploads/' });
 
 var AWS_ACCESS_KEY = process.env.AWS_ACCESS_KEY;
 var AWS_SECRET_KEY = process.env.AWS_SECRET_KEY;
@@ -88,105 +87,13 @@ passport.deserializeUser(function(user, done) {
 
 app.use(passport.initialize());
 
-app.use(function requestLogger(req, res, next) {
-  console.log(req.method + ' ' + req.url);
-  next();
-});
+
+app.use(morgan('combined'));
 
 function zippedKeyFromPackage(package) {
   return 'zipped/' + package.username + '/' + package.package + '/' + package.version + '/package.zip';
 }
 
-app.post('/v1/upload', passport.authenticate('basic', { session: false }), upload.single('package'), function(req, res, next) {
-  console.log(req.file);
-  console.log(req.user);
-
-  var zip = new AdmZip(req.file.path);
-  var packageJson = zip.readAsText('package.json');
-  var readme = zip.readAsText('README.md');
-  try {
-    packageJson = JSON.parse(packageJson);
-  } catch(err) {
-    return res.status(400).json({
-      status: 'error',
-      error: 'failed-to-parse-package-json',
-      message: 'Could not parse package.json'
-    });
-  }
-  console.log(packageJson);
-  var zipStream = fs.createReadStream(req.file.path);
-  var packageKey = req.user.username + '/' + packageJson.name + '/' + packageJson.version;
-  var zippedKey = 'zipped/' + packageKey + '/package.zip';
-  var extractedKey = 'extracted/' + packageKey + '/';
-  s3.headObject({ Key: zippedKey }, function(err, headRes) {
-    console.log('HEAD', headRes)
-    console.log('HEAD err', err)
-    var exists = headRes || err.code !== 'NotFound';
-    if (exists) {
-      return res.status(409).json({
-        status: 'error',
-        error: 'package-exists',
-        message: 'Package already extists at version ' + packageJson.version
-      });
-    }
-
-    var uploads = [{
-      body: zipStream,
-      key: zippedKey
-    }];
-    zip.getEntries().forEach(function(entry) {
-      uploads.push({
-        body: zip.readFile(entry),
-        key: extractedKey + entry.entryName
-      });
-    });
-    console.log('Uploading:', uploads);
-    async.map(uploads, function(upload, callback) {
-      s3.upload({
-        Body: upload.body,
-        Bucket: S3_BUCKET,
-        Key: upload.key,
-        ACL: 'public-read'
-      }).send(callback);
-    }, function(err, uploadRes) {
-      if (err) {
-        console.log('S3 upload failed: ', err);
-        return res.status(400).json({
-          status: 'error',
-          error: 's3-upload-failed'
-        });
-      }
-      if (err) {
-        console.log('S3 upload failed: ', err);
-        return res.status(400).json({
-          status: 'error',
-          error: 's3-upload-failed'
-        });
-      }
-      console.log('Uploaded files', err, uploadRes);
-
-        var packageUrl = 'http://' + req.headers.host + '/v1/' + req.user.username + '/' + packageJson.name + '/' + packageJson.version + '/package.zip';
-        if (process.env.WEBHOOK_URL) {
-          console.log('Posting to webhook: ', process.env.WEBHOOK_URL);
-          request.post({
-            uri: process.env.WEBHOOK_URL,
-            json: {
-              event: 'package-uploaded',
-              url: packageUrl,
-              packageJson: packageJson,
-              readme: readme,
-              username: req.user.username,
-              user_id: req.user.user_id
-            }
-          });
-        }
-        res.json({
-          status: 'success',
-          url: packageUrl
-        });
-      });
-  });
-});
 
 
 function keyToUrl(key) {
@@ -231,7 +138,9 @@ function listPackages(prefix) {
     });
 }
 
-app.get('/v1/_packages', function(req, res, next) {
+var v1 = new express.Router();
+
+v1.get('/_packages', function(req, res, next) {
   listPackages('zipped/')
     .then(function(packages) {
       res.json(packages);
@@ -239,7 +148,7 @@ app.get('/v1/_packages', function(req, res, next) {
     .catch(next);
 });
 
-app.get('/v1/_all', function(req, res, next) {
+v1.get('/_all', function(req, res, next) {
   listPackagesAndVersions('zipped/')
     .then(function(packages) {
       res.json(packages);
@@ -247,7 +156,7 @@ app.get('/v1/_all', function(req, res, next) {
     .catch(next);
 });
 
-app.get('/v1/_packagescount', function(req, res, next) {
+v1.get('/_packagescount', function(req, res, next) {
   listPackages('zipped/')
     .then(function(packages) {
       res.json({ count: packages.length });
@@ -255,7 +164,7 @@ app.get('/v1/_packagescount', function(req, res, next) {
     .catch(next);
 });
 
-app.get('/v1/:username/_packages', function(req, res, next) {
+v1.get('/:username/_packages', function(req, res, next) {
   listPackages('zipped/' + req.params.username)
     .then(function(packages) {
       res.json(packages);
@@ -263,7 +172,7 @@ app.get('/v1/:username/_packages', function(req, res, next) {
     .catch(next);
 });
 
-app.get('/v1/:username/:package/_versions', function(req, res, next) {
+v1.get('/:username/:package/_versions', function(req, res, next) {
   listPackagesAndVersions('zipped/' + req.params.username + '/' + req.params.package)
     .then(function(packages) {
       res.json(packages);
@@ -271,7 +180,7 @@ app.get('/v1/:username/:package/_versions', function(req, res, next) {
     .catch(next);
 });
 
-app.get('/v1/:username/:package/package.zip', function(req, res, next) {
+v1.get('/:username/:package/package.zip', function(req, res, next) {
   listPackagesAndVersions('zipped/' + req.params.username + '/' + req.params.package)
     .then(function(packages) {
       // TODO: sort on semver and extract top version
@@ -281,12 +190,128 @@ app.get('/v1/:username/:package/package.zip', function(req, res, next) {
     .catch(next);
 });
 
-app.get('/v1/:username/:package/:version/package.zip', function(req, res, next) {
+v1.get('/:username/:package/:version/package.zip', function(req, res, next) {
   var key = zippedKeyFromPackage(req.params);
   res.redirect(keyToUrl(key));
 });
 
-app.use(function servePackageFiles(req, res, next) {
+v1.put('/:username/:package/:version/package.zip', passport.authenticate('basic', { session: false }), function(req, res, next) {
+  // probably want to use https://www.npmjs.com/package/unzip here in the future,
+  // to process the zip stream instead of buffering it all up in memory
+  streamToBuffer(req, function(err, buff) {
+    if (err) {
+      return res.status(500).json({
+        status: 'error',
+        error: 'unable-to-read-stream'
+      });
+    }
+
+    console.log(req.user);
+
+    var zip = new AdmZip(buff);
+    var packageJson = zip.readAsText('package.json');
+    var readme = zip.readAsText('README.md');
+    try {
+      packageJson = JSON.parse(packageJson);
+    } catch(err) {
+      return res.status(400).json({
+        status: 'error',
+        error: 'failed-to-parse-package-json',
+        message: 'Could not parse package.json: ' + err.toString()
+      });
+    }
+    if (req.params.username !== req.user.username) return res.status(400).json({
+      status: 'error',
+      error: 'missmatch-username',
+      message: 'username in path not matching auth username'
+    });
+    if (req.params.package !== packageJson.name) return res.status(400).json({
+      status: 'error',
+      error: 'missmatch-username',
+      message: 'package name in path not matching package name in package.json'
+    });
+    if (req.params.version !== packageJson.version) return res.status(400).json({
+      status: 'error',
+      error: 'missmatch-username',
+      message: 'version in path not matching version in package.json'
+    });
+
+    console.log(packageJson);
+    var packageKey = req.user.username + '/' + packageJson.name + '/' + packageJson.version;
+    var zippedKey = 'zipped/' + packageKey + '/package.zip';
+    var extractedKey = 'extracted/' + packageKey + '/';
+    s3.headObject({ Key: zippedKey }, function(err, headRes) {
+      console.log('HEAD', headRes)
+      console.log('HEAD err', err)
+      var exists = headRes || err.code !== 'NotFound';
+      if (exists) {
+        return res.status(409).json({
+          status: 'error',
+          error: 'package-exists',
+          message: 'Package already extists at version ' + packageJson.version
+        });
+      }
+
+      var uploads = [{
+        body: buff,
+        key: zippedKey
+      }];
+      zip.getEntries().forEach(function(entry) {
+        uploads.push({
+          body: zip.readFile(entry),
+          key: extractedKey + entry.entryName
+        });
+      });
+      console.log('Uploading:', uploads);
+      async.map(uploads, function(upload, callback) {
+        s3.upload({
+          Body: upload.body,
+          Bucket: S3_BUCKET,
+          Key: upload.key,
+          ACL: 'public-read'
+        }).send(callback);
+      }, function(err, uploadRes) {
+        if (err) {
+          console.log('S3 upload failed: ', err);
+          return res.status(400).json({
+            status: 'error',
+            error: 's3-upload-failed'
+          });
+        }
+        if (err) {
+          console.log('S3 upload failed: ', err);
+          return res.status(400).json({
+            status: 'error',
+            error: 's3-upload-failed'
+          });
+        }
+        console.log('Uploaded files', err, uploadRes);
+
+          var packageUrl = 'http://' + req.headers.host + '/v1/' + req.user.username + '/' + packageJson.name + '/' + packageJson.version + '/package.zip';
+          if (process.env.WEBHOOK_URL) {
+            console.log('Posting to webhook: ', process.env.WEBHOOK_URL);
+            request.post({
+              uri: process.env.WEBHOOK_URL,
+              json: {
+                event: 'package-uploaded',
+                url: packageUrl,
+                packageJson: packageJson,
+                readme: readme,
+                username: req.user.username,
+                user_id: req.user.user_id
+              }
+            });
+          }
+          res.json({
+            status: 'success',
+            url: packageUrl
+          });
+        });
+    });
+  });
+});
+
+v1.use(function servePackageFiles(req, res, next) {
   var match = req.path.match(/\/v1\/(.*)\/(.*)\/(.*)\/package[.]zip\/(.*)/);
   if (!match) return next('route');
   var username = match[1];
@@ -296,6 +321,8 @@ app.use(function servePackageFiles(req, res, next) {
   var key = 'extracted/' + username + '/' + project + '/' + version + '/' + file;
   res.redirect(keyToUrl(key));
 });
+
+app.use('/v1', v1);
 
 if (process.env.AUTO_CREATE_BUCKET) {
   s3.headBucket({ Bucket: S3_BUCKET }, function(err, result) {
