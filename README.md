@@ -15,3 +15,17 @@ You can then start the server with
 ```bash
 docker-compose up
 ```
+
+# Deploying in production
+
+First time
+```bash
+git clone git@github.com:deepkeep/package-repository.git && cd package-repository
+vim .env # Add all required environment variables
+```
+
+Then to deploy/re-deploy
+```bash
+cd package-repository
+./deploy.sh
+```
